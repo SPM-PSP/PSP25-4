@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 文本检测工具</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
+
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .left-panel {
+            flex: 2;
+        }
+        .right-panel {
+            flex: 1;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        .char-counter {
+            text-align: right;
+            color: #666;
+            font-size: 0.8em;
+            margin-bottom: 10px;
+        }
+        .char-counter.warning {
+            color: orange;
+        }
+        .char-counter.error {
+            color: red;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            min-height: 100px;
+        }
+        .history-item {
+            cursor: pointer;
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .history-item:hover {
+            background-color: #f0f0f0;
+        }
+        .query-text {
+            font-weight: bold;
+        }
+        .query-date {
+            color: #666;
+            font-size: 0.8em;
+        }
+        .model-selector {
+            margin-bottom: 15px;
+        }
+        .file-upload {
+            margin-bottom: 15px;
+        }
+        .clear-history-btn {
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI 文本检测工具</h1>
+    
+    <div class="container">
+        <div class="left-panel">
+            <div class="model-selector">
+                <label for="modelSelect">选择模型: </label>
+                <select id="modelSelect">
+                    <option value="falcon-7b/falcon-7b-instruct" selected>Falcon-7b/Falcon-7B-Instruct（中英文推荐）</option>
+                    <option value="gpt-neo-2.7b">GPT-Neo-2.7B（中英文推荐）</option>
+                    <option value="davinci-002">Davinci-002（支持26种语言）</option>
+                    <option value="babbage-002">Babbage-002（支持26种语言）</option>
+                </select>
+            </div>
+            
+            <div class="file-upload">
+                <label for="fileInput">上传文档: </label>
+                <input type="file" id="fileInput" accept=".txt,.pdf,.docx">
+                <small>(支持.txt, .pdf, .docx)</small>
+            </div>
+            
+            <textarea id="textInput" placeholder="请输入要检测的文本..."></textarea>
+            <div id="charCounter" class="char-counter">0/5000</div>
+            
+            <button id="analyzeBtn">分析文本</button>
+            <button id="clearBtn">清空文本</button>
+            
+            <div id="result"></div>
+
+            <!-- 用户反馈按钮 -->
+            <button id="feedbackBtn" style="background-color: #2196F3;">用户反馈</button>
+
+            <!-- 反馈弹窗（默认隐藏） -->
+            <div id="feedbackModal" style="display: none; position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%);
+                 background: #fff; border: 1px solid #ccc; padding: 20px; border-radius: 8px; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                <h3>反馈意见</h3>
+                <textarea id="feedbackText" style="width: 100%; height: 100px; margin-bottom: 10px;"></textarea>
+                <div style="text-align: right;">
+                    <button id="sendFeedback">提交</button>
+                    <button id="cancelFeedback" style="background-color: #f44336;">取消</button>
+                </div>
+            </div>
+            <div id="modalOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                background: rgba(0,0,0,0.3); z-index: 999;"></div>
+
+
+        </div>
+        
+        <div class="right-panel">
+            <h3>历史记录</h3>
+            <ul id="historyList"></ul>
+        </div>
+    </div>
+
+    <script>
+        const textInput = document.getElementById('textInput');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const resultDiv = document.getElementById('result');
+        const historyList = document.getElementById('historyList');
+        const charCounter = document.getElementById('charCounter');
+        const modelSelect = document.getElementById('modelSelect');
+        const fileInput = document.getElementById('fileInput');
+
+        let history = JSON.parse(localStorage.getItem('textAnalysisHistory')) || [];
+        const MAX_TEXT_LENGTH = 50000;
+
+        // 更新字符计数器
+        function updateCharCounter() {
+            const currentLength = textInput.value.length;
+            charCounter.textContent = `${currentLength}/${MAX_TEXT_LENGTH}`;
+            
+            // 根据长度改变样式
+            charCounter.className = 'char-counter';
+            if (currentLength > MAX_TEXT_LENGTH * 0.8) {
+                charCounter.classList.add('warning');
+            }
+            if (currentLength > MAX_TEXT_LENGTH) {
+                charCounter.classList.add('error');
+            }
+        }
+
+        // 截断超过限制的文本
+        function truncateTextIfNeeded() {
+            if (textInput.value.length > MAX_TEXT_LENGTH) {
+                textInput.value = textInput.value.substring(0, MAX_TEXT_LENGTH);
+                updateCharCounter();
+                alert(`文本超过${MAX_TEXT_LENGTH}字限制，已自动截断`);
+            }
+        }
+
+        // 文件上传处理
+        fileInput.addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                let text = '';
+                if (file.name.endsWith('.txt')) {
+                    text = await readTextFile(file);
+                } else if (file.name.endsWith('.pdf')) {
+                    text = await readPdfFile(file);
+                } else if (file.name.endsWith('.doc') || file.name.endsWith('.docx')) {
+                    text = await readWordFile(file);
+                } else {
+                    alert('不支持的文件格式');
+                    return;
+                }
+
+                textInput.value = text;
+                updateCharCounter();
+                truncateTextIfNeeded();
+            } catch (error) {
+                console.error('文件读取错误:', error);
+                alert('文件读取失败: ' + error.message);
+            }
+        });
+
+        // 读取文本文件
+        function readTextFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = e => reject(new Error('文件读取失败'));
+                reader.readAsText(file);
+            });
+        }
+
+        // 读取PDF文件 (简单实现，实际应用中可能需要PDF.js等库)
+        async function readPdfFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = async function () {
+                    const typedarray = new Uint8Array(reader.result);
+        
+                    try {
+                        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+                        let textContent = '';
+        
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            const page = await pdf.getPage(i);
+                            const text = await page.getTextContent();
+                            const pageText = text.items.map(item => item.str).join(' ');
+                            textContent += pageText + '\n';
+                        }
+        
+                        resolve(textContent);
+                    } catch (error) {
+                        reject(new Error('PDF 解析失败: ' + error.message));
+                    }
+                };
+                reader.onerror = () => reject(new Error('PDF 读取失败'));
+                reader.readAsArrayBuffer(file);
+            });
+        }
+        
+
+        // 读取Word文件 (简单实现，实际应用中可能需要docx.js等库)
+        async function readWordFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function () {
+                    const arrayBuffer = reader.result;
+        
+                    mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+                        .then(function (result) {
+                            resolve(result.value); // 提取的文本
+                        })
+                        .catch(function (err) {
+                            reject(new Error('Word 文档解析失败: ' + err.message));
+                        });
+                };
+        
+                reader.onerror = function () {
+                    reject(new Error('Word 文档读取失败'));
+                };
+        
+                reader.readAsArrayBuffer(file);
+            });
+        }
+        
+
+        // 历史记录渲染
+        function renderHistory() {
+            historyList.innerHTML = '';
+
+            const clearButton = document.createElement('button');
+            clearButton.className = 'clear-history-btn';
+            clearButton.textContent = '清空历史记录';
+            
+            clearButton.style.backgroundColor = 'red';
+            clearButton.style.color = 'white';
+            clearButton.style.border = 'none';
+            clearButton.style.padding = '8px 16px';
+            clearButton.style.borderRadius = '4px';
+            clearButton.style.cursor = 'pointer';
+
+            clearButton.addEventListener('click', () => {
+                if (confirm('确定要清空所有历史记录吗？')) {
+                    history = [];
+                    localStorage.setItem('textAnalysisHistory', JSON.stringify(history));
+                    renderHistory();
+                }
+            });
+
+            historyList.appendChild(clearButton);
+
+            history.forEach((item, index) => {
+                const truncatedText = item.text.length > 50 
+                    ? item.text.substring(0, 50) + '...' 
+                    : item.text;
+
+                const historyItem = document.createElement('li');
+                historyItem.className = 'history-item';
+                historyItem.innerHTML = `
+                    <div class="query-text">${truncatedText}</div>
+                    <div class="query-date">${item.date}</div>
+                    <div class="query-model">模型: ${item.model || '未知'}</div>
+                `;
+
+                historyItem.addEventListener('click', () => {
+                    textInput.value = item.text;
+                    modelSelect.value = item.model || 'davinci-002';
+                    analyzeBtn.click();
+                });
+
+                historyList.appendChild(historyItem);
+            });
+        }
+
+        function addHistory(text, result, model) {
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+            
+            history.unshift({
+                text: text,
+                date: dateStr,
+                result: result,
+                model: model
+            });
+
+            if (history.length > 20) {
+                history.pop();
+            }
+            
+            localStorage.setItem('textAnalysisHistory', JSON.stringify(history));
+            
+            renderHistory();
+        }
+
+        const baseUrl = 'https://aidetect.lab.westlake.edu.cn/api/detect';
+
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer sk-80aa8827a2d0031125628f3d94b31e81' 
+        };
+
+        async function analyzeText(text, model) {
+            try {
+                const detectorMap = {
+                    'falcon-7b/falcon-7b-instruct': 'fast-detect(falcon-7b/falcon-7b-instruct)',
+                    'gpt-neo-2.7b': 'fast-detect(gpt-neo-2.7b)',
+                    'davinci-002': 'glimpse(davinci-002)',
+                    'babbage-002': 'glimpse(babbage-002)'
+                };
+                
+                const detector = detectorMap[model] || 'fast-detect(gpt-neo-2.7b)';
+
+                const response = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        detector: detector,
+                        text: text
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                
+                const data = await response.json();
+                
+                if (data.code === 0) {
+                    console.log('Probability:', data.data.prob);
+                    console.log('Details:', data.data.details);
+                    
+                    // resultDiv.innerHTML = `
+                    //     <p style="font-weight: bold; margin-bottom: 10px;">检测结果 (${model}): </p>
+                    //     <p>概率: ${data.data.prob}</p>
+                    //     <p>细节: ${JSON.stringify(data.data.details)}</p>
+                    // `;
+                    prob = data.data.prob
+                    result_str = ""
+                    if (prob<=0.5){
+                        result_str = '大概率是人类创作。'}
+                    else if(prob<=0.85){
+                        result_str = '可能是人类和AI共同创作。'}
+                    else{
+                        result_str = '大概率是AI创作。'}
+
+                    resultDiv.innerHTML = `
+                        <p style="font-weight: bold; margin-bottom: 10px;">检测结果 (${model}): </p>
+                        <p>AI生成概率: ${data.data.prob}</p>
+                        <p>条件概率曲率: ${data.data.details.crit}</p>
+                        <p>${result_str}（ps：如果输入文本过少可能导致结果异常）</p>
+                    `;
+                    
+                    
+                    addHistory(text, data, model);
+                } else {
+                    resultDiv.innerHTML = `<p style="color: red;">${data.msg}</p>`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                resultDiv.innerHTML = `<p style="color: red;">无法获取数据，请稍后再试。错误: ${error.message}</p>`;
+            }
+        }
+
+        // 事件监听
+        textInput.addEventListener('input', updateCharCounter);
+        textInput.addEventListener('blur', truncateTextIfNeeded);
+
+        clearBtn.addEventListener('click', () => {
+            textInput.value = '';
+            updateCharCounter();
+            resultDiv.innerHTML = '';
+        });
+
+        analyzeBtn.addEventListener('click', () => {
+            const text = textInput.value.trim();
+            if (!text) {
+                alert('请输入要检测的文本');
+                return;
+            }
+            
+            const model = modelSelect.value;
+            resultDiv.innerHTML = '<p>正在分析，请稍候...</p>';
+            
+            analyzeText(text, model);
+        });
+
+        // 用户反馈功能
+        const feedbackBtn = document.getElementById('feedbackBtn');
+        const feedbackModal = document.getElementById('feedbackModal');
+        const feedbackText = document.getElementById('feedbackText');
+        const sendFeedback = document.getElementById('sendFeedback');
+        const cancelFeedback = document.getElementById('cancelFeedback');
+        const modalOverlay = document.getElementById('modalOverlay');
+
+        feedbackBtn.addEventListener('click', () => {
+            feedbackText.value = '';  // 清空反馈框
+            feedbackModal.style.display = 'block';  // 显示反馈弹窗
+            modalOverlay.style.display = 'block';  // 显示遮罩
+        });
+
+        cancelFeedback.addEventListener('click', () => {
+            feedbackModal.style.display = 'none';  // 隐藏反馈弹窗
+            modalOverlay.style.display = 'none';  // 隐藏遮罩
+        });
+
+        sendFeedback.addEventListener('click', async () => {
+            const feedback = feedbackText.value.trim();
+            if (!feedback) {
+                alert('请输入反馈内容');
+                return;
+            }
+
+            try {
+                // 将 fetch URL 更新为相对路径（避免跨域问题）
+                const res = await fetch('/submit-feedback', {
+                method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ feedback })
+                });
+
+                // 确保后端返回的是 JSON 格式
+                const result = await res.json();
+
+                // 检查返回的 success 字段
+                if (result.success) {
+                    alert('反馈已提交，感谢您的意见！');
+                } else {
+                    alert('反馈提交失败');
+                }
+            } catch (err) {
+                alert('提交失败: ' + err.message);
+            }
+
+            feedbackModal.style.display = 'none';  // 隐藏反馈弹窗
+            modalOverlay.style.display = 'none';  // 隐藏遮罩
+        });
+
+
+
+        // 初始化
+        updateCharCounter();
+        renderHistory();
+    </script>
+</body>
+</html>
