@@ -7,7 +7,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
 
-
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -82,14 +81,25 @@
             color: #666;
             font-size: 0.8em;
         }
-        .model-selector {
-            margin-bottom: 15px;
-        }
         .file-upload {
             margin-bottom: 15px;
         }
         .clear-history-btn {
             margin-bottom: 15px;
+        }
+        .model-result {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f0f0f0;
+        }
+        .combined-result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 2px solid #4CAF50;
+            border-radius: 4px;
+            background-color: #e8f5e9;
         }
     </style>
 </head>
@@ -98,16 +108,6 @@
     
     <div class="container">
         <div class="left-panel">
-            <div class="model-selector">
-                <label for="modelSelect">选择模型: </label>
-                <select id="modelSelect">
-                    <option value="falcon-7b/falcon-7b-instruct" selected>Falcon-7b/Falcon-7B-Instruct（中英文推荐）</option>
-                    <option value="gpt-neo-2.7b">GPT-Neo-2.7B（中英文推荐）</option>
-                    <option value="davinci-002">Davinci-002（支持26种语言）</option>
-                    <option value="babbage-002">Babbage-002（支持26种语言）</option>
-                </select>
-            </div>
-            
             <div class="file-upload">
                 <label for="fileInput">上传文档: </label>
                 <input type="file" id="fileInput" accept=".txt,.pdf,.docx">
@@ -137,8 +137,6 @@
             </div>
             <div id="modalOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
                 background: rgba(0,0,0,0.3); z-index: 999;"></div>
-
-
         </div>
         
         <div class="right-panel">
@@ -154,7 +152,6 @@
         const resultDiv = document.getElementById('result');
         const historyList = document.getElementById('historyList');
         const charCounter = document.getElementById('charCounter');
-        const modelSelect = document.getElementById('modelSelect');
         const fileInput = document.getElementById('fileInput');
 
         let history = JSON.parse(localStorage.getItem('textAnalysisHistory')) || [];
@@ -310,12 +307,11 @@
                 historyItem.innerHTML = `
                     <div class="query-text">${truncatedText}</div>
                     <div class="query-date">${item.date}</div>
-                    <div class="query-model">模型: ${item.model || '未知'}</div>
                 `;
 
                 historyItem.addEventListener('click', () => {
                     textInput.value = item.text;
-                    modelSelect.value = item.model || 'davinci-002';
+                    updateCharCounter();
                     analyzeBtn.click();
                 });
 
@@ -323,18 +319,17 @@
             });
         }
 
-        function addHistory(text, result, model) {
+        function addHistory(text, result) {
             const now = new Date();
             const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
             
             history.unshift({
                 text: text,
                 date: dateStr,
-                result: result,
-                model: model
+                result: result
             });
 
-            if (history.length > 20) {
+            if (history.length > 10) {
                 history.pop();
             }
             
@@ -350,65 +345,99 @@
             'Authorization': 'Bearer sk-80aa8827a2d0031125628f3d94b31e81' 
         };
 
-        async function analyzeText(text, model) {
+        async function analyzeText(text) {
             try {
-                const detectorMap = {
-                    'falcon-7b/falcon-7b-instruct': 'fast-detect(falcon-7b/falcon-7b-instruct)',
-                    'gpt-neo-2.7b': 'fast-detect(gpt-neo-2.7b)',
-                    'davinci-002': 'glimpse(davinci-002)',
-                    'babbage-002': 'glimpse(babbage-002)'
-                };
+                resultDiv.innerHTML = '<p>正在分析，请稍候...</p>';
                 
-                const detector = detectorMap[model] || 'fast-detect(gpt-neo-2.7b)';
-
-                const response = await fetch(baseUrl, {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify({
-                        detector: detector,
-                        text: text
-                    })
+                // 同时使用两个模型进行检测
+                const [falconResult, neoResult] = await Promise.all([
+                    fetchWithModel(text, 'falcon-7b/falcon-7b-instruct'),
+                    fetchWithModel(text, 'gpt-neo-2.7b')
+                ]);
+                
+                // 显示两个模型的结果
+                /*let resultHTML = `
+                    <div class="model-result">
+                        <p style="font-weight: bold; margin-bottom: 10px;">Falcon-7b 检测结果: </p>
+                        <p>AI生成概率: ${falconResult.prob}</p>
+                        <p>条件概率曲率: ${falconResult.details.crit}</p>
+                        <p>${getResultText(falconResult.prob)}</p>
+                    </div>
+                    
+                    <div class="model-result">
+                        <p style="font-weight: bold; margin-bottom: 10px;">GPT-Neo-2.7B 检测结果: </p>
+                        <p>AI生成概率: ${neoResult.prob}</p>
+                        <p>条件概率曲率: ${neoResult.details.crit}</p>
+                        <p>${getResultText(neoResult.prob)}</p>
+                    </div>
+                `;*/
+                
+                // 计算平均概率
+                const avgProb = ((falconResult.prob + neoResult.prob) / 2).toFixed(2);
+                
+                // 添加综合结果
+                let resultHTML = `
+                    <div class="combined-result">
+                        <p style="font-weight: bold; margin-bottom: 10px;">综合检测结果: </p>
+                        <p>平均AI生成概率: ${avgProb}</p>
+                        <p>${getResultText(avgProb)}</p>
+                        <p>（基于Falcon-7b和GPT-Neo-2.7B模型的综合结果）</p>
+                    </div>
+                `;
+                
+                resultDiv.innerHTML = resultHTML;
+                
+                addHistory(text, {
+                    falconResult,
+                    neoResult,
+                    avgProb
                 });
-                
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                
-                const data = await response.json();
-                
-                if (data.code === 0) {
-                    console.log('Probability:', data.data.prob);
-                    console.log('Details:', data.data.details);
-                    
-                    // resultDiv.innerHTML = `
-                    //     <p style="font-weight: bold; margin-bottom: 10px;">检测结果 (${model}): </p>
-                    //     <p>概率: ${data.data.prob}</p>
-                    //     <p>细节: ${JSON.stringify(data.data.details)}</p>
-                    // `;
-                    prob = data.data.prob
-                    result_str = ""
-                    if (prob<=0.5){
-                        result_str = '大概率是人类创作。'}
-                    else if(prob<=0.85){
-                        result_str = '可能是人类和AI共同创作。'}
-                    else{
-                        result_str = '大概率是AI创作。'}
-
-                    resultDiv.innerHTML = `
-                        <p style="font-weight: bold; margin-bottom: 10px;">检测结果 (${model}): </p>
-                        <p>AI生成概率: ${data.data.prob}</p>
-                        <p>条件概率曲率: ${data.data.details.crit}</p>
-                        <p>${result_str}（ps：如果输入文本过少可能导致结果异常）</p>
-                    `;
-                    
-                    
-                    addHistory(text, data, model);
-                } else {
-                    resultDiv.innerHTML = `<p style="color: red;">${data.msg}</p>`;
-                }
             } catch (error) {
                 console.error('Error:', error);
                 resultDiv.innerHTML = `<p style="color: red;">无法获取数据，请稍后再试。错误: ${error.message}</p>`;
+            }
+        }
+        
+        // 辅助函数：根据概率获取结果文本
+        function getResultText(prob) {
+            prob = parseFloat(prob);
+            if (prob <= 0.5) {
+                return '大概率是人类创作。';
+            } else if (prob <= 0.85) {
+                return '可能是人类和AI共同创作。';
+            } else {
+                return '大概率是AI创作。';
+            }
+        }
+        
+        // 辅助函数：使用指定模型获取结果
+        async function fetchWithModel(text, model) {
+            const detectorMap = {
+                'falcon-7b/falcon-7b-instruct': 'fast-detect(falcon-7b/falcon-7b-instruct)',
+                'gpt-neo-2.7b': 'fast-detect(gpt-neo-2.7b)'
+            };
+            
+            const detector = detectorMap[model];
+            
+            const response = await fetch(baseUrl, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    detector: detector,
+                    text: text
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Network response was not ok for model ${model}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.code === 0) {
+                return data.data;
+            } else {
+                throw new Error(data.msg || `Error from model ${model}`);
             }
         }
 
@@ -429,10 +458,7 @@
                 return;
             }
             
-            const model = modelSelect.value;
-            resultDiv.innerHTML = '<p>正在分析，请稍候...</p>';
-            
-            analyzeText(text, model);
+            analyzeText(text);
         });
 
         // 用户反馈功能
@@ -485,8 +511,6 @@
             feedbackModal.style.display = 'none';  // 隐藏反馈弹窗
             modalOverlay.style.display = 'none';  // 隐藏遮罩
         });
-
-
 
         // 初始化
         updateCharCounter();
