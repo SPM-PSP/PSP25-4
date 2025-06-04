@@ -373,7 +373,15 @@
                 `;*/
                 
                 // 计算平均概率
-                const avgProb = ((falconResult.prob + neoResult.prob) / 2).toFixed(2);
+                //const avgProb = ((falconResult.prob + neoResult.prob) / 2).toFixed(2);
+
+                //利用贝叶斯公式，计算最终概率
+                const pA = falconResult.prob;
+                const pB = neoResult.prob;
+                const numerator = pA * pB;
+                const denominator = numerator + (1 - pA) * (1 - pB);
+                const avgProb = (numerator / denominator).toFixed(2);
+                
                 
                 // 添加综合结果
                 let resultHTML = `
