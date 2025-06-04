@@ -2,37 +2,47 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI 文本检测工具</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
 
     <style>
+        * {
+            box-sizing: border-box;
+        }
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
+            max-width: 100%;
             margin: 0 auto;
-            padding: 20px;
+            padding: 15px;
             line-height: 1.6;
+            -webkit-text-size-adjust: 100%;
+        }
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+        }
+        h3 {
+            font-size: 1.3rem;
         }
         .container {
             display: flex;
+            flex-direction: column;
             gap: 20px;
         }
-        .left-panel {
-            flex: 2;
-        }
-        .right-panel {
-            flex: 1;
+        .left-panel, .right-panel {
+            width: 100%;
         }
         textarea {
             width: 100%;
             height: 200px;
-            padding: 10px;
+            padding: 12px;
             margin-bottom: 10px;
             border: 1px solid #ccc;
-            border-radius: 4px;
+            border-radius: 6px;
             resize: vertical;
+            font-size: 16px;
         }
         .char-counter {
             text-align: right;
@@ -50,10 +60,14 @@
             background-color: #4CAF50;
             color: white;
             border: none;
-            padding: 10px 15px;
-            border-radius: 4px;
+            padding: 12px 18px;
+            border-radius: 6px;
             cursor: pointer;
             margin-right: 10px;
+            margin-bottom: 10px;
+            font-size: 16px;
+            min-width: 120px;
+            -webkit-tap-highlight-color: transparent;
         }
         button:hover {
             background-color: #45a049;
@@ -62,20 +76,23 @@
             margin-top: 20px;
             padding: 15px;
             border: 1px solid #ddd;
-            border-radius: 4px;
+            border-radius: 6px;
             background-color: #f9f9f9;
             min-height: 100px;
+            font-size: 16px;
         }
         .history-item {
             cursor: pointer;
-            padding: 8px;
+            padding: 12px;
             border-bottom: 1px solid #eee;
+            font-size: 16px;
         }
         .history-item:hover {
             background-color: #f0f0f0;
         }
         .query-text {
             font-weight: bold;
+            margin-bottom: 5px;
         }
         .query-date {
             color: #666;
@@ -84,22 +101,118 @@
         .file-upload {
             margin-bottom: 15px;
         }
+        .file-upload input[type="file"] {
+            font-size: 16px;
+            margin-top: 8px;
+            width: 100%;
+        }
         .clear-history-btn {
             margin-bottom: 15px;
+            width: 100%;
         }
         .model-result {
             margin-bottom: 15px;
-            padding: 10px;
+            padding: 12px;
             border: 1px solid #ddd;
-            border-radius: 4px;
+            border-radius: 6px;
             background-color: #f0f0f0;
+            font-size: 16px;
         }
         .combined-result {
             margin-top: 20px;
             padding: 15px;
             border: 2px solid #4CAF50;
-            border-radius: 4px;
+            border-radius: 6px;
             background-color: #e8f5e9;
+            font-size: 16px;
+        }
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        /* 移动设备特定样式 */
+        @media (min-width: 768px) {
+            .container {
+                flex-direction: row;
+            }
+            .left-panel {
+                flex: 2;
+            }
+            .right-panel {
+                flex: 1;
+            }
+            .file-upload input[type="file"] {
+                width: auto;
+            }
+            .clear-history-btn {
+                width: auto;
+            }
+            .button-group {
+                flex-wrap: nowrap;
+            }
+        }
+        
+        /* 反馈弹窗样式 */
+        #feedbackModal {
+            display: none;
+            position: fixed;
+            top: 20%;
+            left: 5%;
+            width: 90%;
+            transform: translate(0, 0);
+            background: #fff;
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 8px;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        #modalOverlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.3);
+            z-index: 999;
+        }
+        #feedbackText {
+            width: 100%;
+            height: 120px;
+            margin-bottom: 15px;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+        .modal-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        /* 小屏幕优化 */
+        @media (max-width: 480px) {
+            button {
+                width: 100%;
+                margin-right: 0;
+            }
+            .button-group {
+                flex-direction: column;
+            }
+            .button-group button {
+                width: 100%;
+            }
+            h1 {
+                font-size: 1.5rem;
+            }
+            h3 {
+                font-size: 1.2rem;
+            }
         }
     </style>
 </head>
@@ -117,26 +230,24 @@
             <textarea id="textInput" placeholder="请输入要检测的文本..."></textarea>
             <div id="charCounter" class="char-counter">0/5000</div>
             
-            <button id="analyzeBtn">分析文本</button>
-            <button id="clearBtn">清空文本</button>
+            <div class="button-group">
+                <button id="analyzeBtn">分析文本</button>
+                <button id="clearBtn">清空文本</button>
+                <button id="feedbackBtn" style="background-color: #2196F3;">用户反馈</button>
+            </div>
             
             <div id="result"></div>
 
-            <!-- 用户反馈按钮 -->
-            <button id="feedbackBtn" style="background-color: #2196F3;">用户反馈</button>
-
             <!-- 反馈弹窗（默认隐藏） -->
-            <div id="feedbackModal" style="display: none; position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%);
-                 background: #fff; border: 1px solid #ccc; padding: 20px; border-radius: 8px; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <div id="feedbackModal">
                 <h3>反馈意见</h3>
-                <textarea id="feedbackText" style="width: 100%; height: 100px; margin-bottom: 10px;"></textarea>
-                <div style="text-align: right;">
-                    <button id="sendFeedback">提交</button>
+                <textarea id="feedbackText" placeholder="请输入您的反馈意见..."></textarea>
+                <div class="modal-buttons">
                     <button id="cancelFeedback" style="background-color: #f44336;">取消</button>
+                    <button id="sendFeedback">提交</button>
                 </div>
             </div>
-            <div id="modalOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-                background: rgba(0,0,0,0.3); z-index: 999;"></div>
+            <div id="modalOverlay"></div>
         </div>
         
         <div class="right-panel">
@@ -283,9 +394,10 @@
             clearButton.style.backgroundColor = 'red';
             clearButton.style.color = 'white';
             clearButton.style.border = 'none';
-            clearButton.style.padding = '8px 16px';
-            clearButton.style.borderRadius = '4px';
+            clearButton.style.padding = '10px';
+            clearButton.style.borderRadius = '6px';
             clearButton.style.cursor = 'pointer';
+            clearButton.style.marginBottom = '15px';
 
             clearButton.addEventListener('click', () => {
                 if (confirm('确定要清空所有历史记录吗？')) {
@@ -296,6 +408,14 @@
             });
 
             historyList.appendChild(clearButton);
+
+            if (history.length === 0) {
+                const emptyMsg = document.createElement('p');
+                emptyMsg.textContent = '暂无历史记录';
+                emptyMsg.style.color = '#666';
+                historyList.appendChild(emptyMsg);
+                return;
+            }
 
             history.forEach((item, index) => {
                 const truncatedText = item.text.length > 50 
@@ -355,33 +475,12 @@
                     fetchWithModel(text, 'gpt-neo-2.7b')
                 ]);
                 
-                // 显示两个模型的结果
-                /*let resultHTML = `
-                    <div class="model-result">
-                        <p style="font-weight: bold; margin-bottom: 10px;">Falcon-7b 检测结果: </p>
-                        <p>AI生成概率: ${falconResult.prob}</p>
-                        <p>条件概率曲率: ${falconResult.details.crit}</p>
-                        <p>${getResultText(falconResult.prob)}</p>
-                    </div>
-                    
-                    <div class="model-result">
-                        <p style="font-weight: bold; margin-bottom: 10px;">GPT-Neo-2.7B 检测结果: </p>
-                        <p>AI生成概率: ${neoResult.prob}</p>
-                        <p>条件概率曲率: ${neoResult.details.crit}</p>
-                        <p>${getResultText(neoResult.prob)}</p>
-                    </div>
-                `;*/
-                
                 // 计算平均概率
-                //const avgProb = ((falconResult.prob + neoResult.prob) / 2).toFixed(2);
-
-                //利用贝叶斯公式，计算最终概率
                 const pA = falconResult.prob;
                 const pB = neoResult.prob;
                 const numerator = pA * pB;
                 const denominator = numerator + (1 - pA) * (1 - pB);
                 const avgProb = (numerator / denominator).toFixed(2);
-                
                 
                 // 添加综合结果
                 let resultHTML = `
@@ -518,6 +617,12 @@
 
             feedbackModal.style.display = 'none';  // 隐藏反馈弹窗
             modalOverlay.style.display = 'none';  // 隐藏遮罩
+        });
+
+        // 点击遮罩关闭弹窗
+        modalOverlay.addEventListener('click', () => {
+            feedbackModal.style.display = 'none';
+            modalOverlay.style.display = 'none';
         });
 
         // 初始化
